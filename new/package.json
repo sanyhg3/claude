@@ -1,0 +1,17 @@
+{
+  "name": "remote-browser",
+  "version": "1.0.0",
+  "description": "Screenshot-based remote browser with native mobile keyboard support",
+  "main": "src/server/main.js",
+  "scripts": {
+    "start": "node src/server/main.js",
+    "install-browser": "npx playwright install chrome"
+  },
+  "dependencies": {
+    "express": "^4.22.1",
+    "ffmpeg-static": "^5.3.0",
+    "node-datachannel": "^0.32.3",
+    "playwright": "^1.44.0",
+    "ws": "^8.17.0"
+  }
+}
